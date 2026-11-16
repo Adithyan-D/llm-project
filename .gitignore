@@ -1,0 +1,47 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# --- Virtual environment ---
+.venv/
+venv/
+.env
+.env.*
+
+# --- Large data / models / artifacts (never commit) ---
+datasets/raw/*
+datasets/processed/*
+!datasets/**/.gitkeep
+checkpoints/*
+!checkpoints/.gitkeep
+experiments/*
+!experiments/.gitkeep
+model_registry/hf_cache/*
+model_registry/torch_cache/
+model_registry/gguf/*
+model_registry/*.json
+!model_registry/hf_cache/.gitkeep
+!model_registry/gguf/.gitkeep
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.gguf
+*.onnx
+
+# --- Frontend ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# --- Logs / temp / OS ---
+*.log
+logs/
+tmp/
+Thumbs.db
+Desktop.ini
