@@ -59,4 +59,4 @@ Detailed setup, measurements and constraints: [`docs/ENVIRONMENT.md`](docs/ENVIR
 
 ## License
 
-TBD.
+MIT — see [`LICENSE`](LICENSE).

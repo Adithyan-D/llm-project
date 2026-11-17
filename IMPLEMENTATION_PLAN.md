@@ -15,6 +15,20 @@ Last updated: 2026-11-16 — **Phase 0 complete and verified**. Current focus: P
 3. Record the proof (command, test name, measured number) in §9 or §8.
 4. Add a row to §10 (Session Log) and a row to §8 for every measured number.
 5. Any decision that changes the architecture goes into §2 (ADR-lite) with a date.
+6. **Phase close routine** (mandatory, every phase):
+   `pytest` green → `ruff check .` and `ruff format --check .` clean →
+   commit with a conventional message (`feat(phaseN): …`, `test(phaseN): …`,
+   `docs: …`, `fix: …`, `chore: …`) → `git push` to `main` →
+   record the pushed commit hash in §10.
+
+### Repository
+
+| | |
+|---|---|
+| Remote | `origin` = https://github.com/Adithyan-D/llm-project |
+| Branch | `main` (tracks `origin/main`) |
+| License | MIT (`LICENSE`, added at repo creation) |
+| Auth | Git Credential Manager (`manager`), user already signed in |
 
 ### Status Legend
 
