@@ -25,6 +25,7 @@ model_registry/hf_cache/*
 model_registry/torch_cache/
 model_registry/gguf/*
 model_registry/*.json
+model_registry/tokenizers/
 !model_registry/hf_cache/.gitkeep
 !model_registry/gguf/.gitkeep
 *.pt
