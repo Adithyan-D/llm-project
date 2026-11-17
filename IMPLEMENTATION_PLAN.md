@@ -363,6 +363,7 @@ Proof-of-completion entries (test names, outputs, file hashes).
 | 2026-11-16 | Phase 0: git init, skeleton, venv (torch 2.15.0+cpu), check_env.py, 11 tests, ruff config, README + ENVIRONMENT docs, benchmarks recorded | `pytest` 11 passed, `ruff` clean, check_env measurements in §8 | Phase 1: dataset loaders + BPE tokenizer |
 | 2026-11-17 | GitHub wiring: rebased Phase 0 onto upstream `main` (LICENSE kept), authored docs commit, pushed | `9af411a` + `f687747` pushed to `origin/main`, remote HEAD confirmed via GitHub API (author `Adithyan-D`) | Phase 1 |
 | 2026-11-17 | Phase 1: loaders/preprocess/stats/split pipeline, from-scratch byte-level BPE, persistence, visualization, HF benchmark, 5 CLI scripts, 48 new tests, docs/DATASET_AND_TOKENIZER.md, real Tiny Shakespeare run | 59 tests pass, ruff clean, dataset `tinyshakespeare-971a2b0d5ff5` (524,233 tokens), BPE-1024 (768 merges, 2.85 s) | Phase 2: transformer from scratch |
+| 2026-11-17 | Phase 1 pushed to origin/main | 3fba6c2 (feat) + cdb3cfc (docs) verified on remote | Phase 2 |
 
 ---
 
