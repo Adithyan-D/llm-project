@@ -337,6 +337,7 @@ Proof-of-completion entries (test names, outputs, file hashes).
 |---|---|---|---|
 | 2026-11-16 | Spec analysis, environment audit, plan created | read-only audit | Phase 0 execution |
 | 2026-11-16 | Phase 0: git init, skeleton, venv (torch 2.15.0+cpu), check_env.py, 11 tests, ruff config, README + ENVIRONMENT docs, benchmarks recorded | `pytest` 11 passed, `ruff` clean, check_env measurements in §8 | Phase 1: dataset loaders + BPE tokenizer |
+| 2026-11-17 | GitHub wiring: rebased Phase 0 onto upstream `main` (LICENSE kept), authored docs commit, pushed | `9af411a` + `f687747` pushed to `origin/main`, remote HEAD confirmed via GitHub API (author `Adithyan-D`) | Phase 1 |
 
 ---
 
