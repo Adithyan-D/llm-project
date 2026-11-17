@@ -3,8 +3,8 @@
 > Single source of truth for engineering progress. `README.md` will be user-facing;
 > this file is engineering-facing. Update it in the same session as the work is done.
 
-Last updated: 2026-11-16 — **Phase 0 complete and verified**. Current focus: Phase 1
-(dataset management + BPE tokenizer).
+Last updated: 2026-11-17 — **Phase 1 complete and verified**. Current focus: Phase 2
+(transformer from scratch).
 
 ---
 
@@ -97,6 +97,10 @@ permission. `HF_HOME`, `TORCH_HOME`, MLflow store, model cache all live inside t
 | A11 | From-scratch components expose tests before integration | "test each subsystem before integrating" | end-to-end-only testing |
 | A12 | Thread policy: all logical CPUs (8) unless `LLM_FOUNDRY_NUM_THREADS` set | measured +63% matmul, +69% step throughput vs torch's 4-thread default | accept torch default |
 | A13 | `torch.set_num_threads` must be applied in every long process (scripts, API worker) | setting is not persisted across processes | rely on default |
+| A14 | Byte-level BPE (256 byte base tokens) instead of word-level | lossless, no `<unk>`, arbitrary text incl. code/emoji, predictable `256+merges` budget | word-level BPE with `<unk>`, SentencePiece wrapper |
+| A15 | Hash-based split assignment instead of shuffle-and-slice | streaming, order-independent, reproducible per seed | buffer + shuffle (needs full corpus in RAM) |
+| A16 | Exact-match dedup only | O(1) per record, ~50 B/sample | MinHash/SimHash near-dup (deferred) |
+| A17 | Token counts only reported when a real tokenizer is supplied | avoids fake "approx tokens = chars/4" numbers | estimated token counts |
 
 ---
 
@@ -145,7 +149,7 @@ LLM_Platform/
 | Module | Disk | Peak RAM |
 |---|---|---|
 | venv (P0) | **791 MiB measured** (~0.8 GB) | — |
-| tokenizer + processed data | <500 MB | ~1 GB |
+| tokenizer + processed data | **1.4 MB measured** (1.37 MB dataset + 33.5 KB tokenizer) | ~200 MB peak |
 | 1–5M GPT checkpoints | <1 GB | 2–3 GB (533 MiB measured for 5.29M) |
 | HF pretrained (360M + 0.5B) | ~2 GB | 3–6 GB |
 | LoRA adapters | <50 MB each | +1–2 GB |
@@ -199,20 +203,23 @@ measured disk delta logged.
 **Result (2026-11-16):** met. 11 tests pass, ruff clean; 221 GFLOPS / 447 ms per
 5.29M GPT step at 8 threads; `.venv` = 791 MiB. See `docs/ENVIRONMENT.md` §4.
 
-### Phase 1 — Dataset & Tokenizer `[ ]`
-- [ ] Loaders for TXT / JSON / JSONL with schema validation
-- [ ] Malformed-record quarantine, dedup, text normalization
-- [ ] Chunked/streaming preprocessing (no full-file RAM load for large inputs)
-- [ ] Statistics: samples, words, approx tokens, avg length, size, split distribution
-- [ ] Train/val/test splitting with saved metadata + dataset version hash
-- [ ] Custom BPE: pair counting, merges, vocab build, encode, decode, unknown handling
-- [ ] Tokenizer save/load (JSON vocab + merges + config)
-- [ ] Tokenization visualization (text → tokens → IDs)
-- [ ] Benchmark + comparison against an HF tokenizer
-- [ ] Tests: round-trip encode/decode, unicode/edge text, vocab growth, reload equality
+### Phase 1 — Dataset & Tokenizer `[x]`
+- [x] Loaders for TXT / JSON / JSONL with schema validation (`ml/data/loaders.py`)
+- [x] Malformed-record quarantine, dedup, text normalization (`ml/data/preprocess.py`)
+- [x] Chunked/streaming preprocessing (no full-file RAM load; JSON arrays documented as non-streaming)
+- [x] Statistics: samples, words, exact tokens (when tokenizer given), avg length, size, split distribution (`ml/data/stats.py`)
+- [x] Train/val/test hash-based splitting with saved metadata + dataset version hash
+- [x] Custom BPE: incremental pair counting, merges, vocab build, encode, decode, byte-level (no `<unk>` needed)
+- [x] Tokenizer save/load (merges + config + specials; vocab rebuilt and validated)
+- [x] Tokenization visualization (text → tokens → IDs) — `scripts/tokenize_demo.py`
+- [x] Benchmark + comparison against an HF tokenizer (GPT-2; see §8)
+- [x] Tests: round-trip encode/decode, unicode/edge text, vocab growth, reload equality, corrupt-file rejection
+- [x] Corpus pinning: `scripts/download_corpus.py` with SHA-256 verification
+- [x] CLI scripts: prepare_dataset, train_tokenizer, tokenize_demo, bench_tokenizer
 
-**Acceptance:** trained tokenizer on a small corpus; round-trip identity test passes;
-stats endpoint data reproducible from saved config.
+**Acceptance:** met. Tiny Shakespeare (1.12 MB) → 25,721 kept samples; BPE-1024 trained
+in 2.85 s (768 merges + 256 bytes + 1 special), exact 524,233 tokens, lossless
+round-trip. 59 tests pass. Details: `docs/DATASET_AND_TOKENIZER.md`.
 
 ### Phase 2 — Transformer From Scratch `[ ]`
 - [ ] Token embeddings + positional embeddings
@@ -313,6 +320,15 @@ Only measured values — never estimated or invented. Include hardware + command
 | 2026-11-16 | Process RSS after benchmark | torch + 5.29M model loaded | 533 MiB | same |
 | 2026-11-16 | Test suite | pytest 9.2.0 | 11 passed in 4.09 s | `.venv\Scripts\python.exe -m pytest` |
 | 2026-11-16 | Disk: `.venv` size | torch 2.15.0+cpu + numpy/pandas/pytest/ruff | 791 MiB | `Get-ChildItem .venv -Recurse \| Measure-Object Length -Sum` |
+| 2026-11-17 | Dataset preprocessing | Tiny Shakespeare 1,115,394 B, line mode, NFKC, dedup, 80/10/10, seed 42 | 25,721 kept / 7,056 dup removed; 1,003,675 chars, 192,862 words; 2.1 s | `.venv\Scripts\python.exe scripts\prepare_dataset.py ...` |
+| 2026-11-17 | Split shares achieved | 80/10/10 target, hash split | train 0.8012 / val 0.1003 / test 0.0985 | same (meta.json) |
+| 2026-11-17 | BPE training | vocab_size 1024, min_frequency 2, train split (20,607 docs) | 768 merges + 256 bytes + 1 special = 1025; 2.85 s | `.venv\Scripts\python.exe scripts\train_tokenizer.py ...` |
+| 2026-11-17 | Exact token count | dataset + BPE-1024 | 524,233 tokens, 1.915 chars/token | `prepare_dataset.py --tokenizer ...` |
+| 2026-11-17 | Tokenizer compression (held-out) | 500 test docs, 18,932 chars | local 1.91 chars/token vs HF gpt2 3.82 | `.venv\Scripts\python.exe scripts\bench_tokenizer.py ...` |
+| 2026-11-17 | Tokenizer encode throughput | 500 test docs, single thread | local 1.37 M chars/s vs HF gpt2 2.63 M chars/s (Rust) | same |
+| 2026-11-17 | Tokenizer round-trip | all splits + unicode/emoji/ANSI/empty | lossless, verified by tests | `pytest backend/tests/test_tokenizer.py` |
+| 2026-11-17 | Test suite | pytest 9.2.0 | 59 passed in 9.25 s | `.venv\Scripts\python.exe -m pytest` |
+| 2026-11-17 | Artifact sizes | dataset + tokenizer | 1.37 MB processed, 33.5 KB tokenizer | `Get-ChildItem ... \| Measure-Object Length -Sum` |
 
 ---
 
@@ -328,6 +344,14 @@ Proof-of-completion entries (test names, outputs, file hashes).
 | 2026-11-16 | P0 | Gradients flow through LayerNorm+Linear | `test_gradient_flow_through_layernorm_and_linear` |
 | 2026-11-16 | P0 | Benchmark model is in 1-20M param range | `test_provisional_benchmark_model_is_in_target_range` |
 | 2026-11-16 | P0 | Lint/format clean | `ruff check .` → All checks passed; `ruff format --check .` → 19 files formatted |
+| 2026-11-17 | P1 | Loaders stream and quarantine bad records | `test_jsonl_collects_structural_issues_but_keeps_valid_records`, `test_txt_line_mode_skips_blank_lines` |
+| 2026-11-17 | P1 | Splits + dataset hash reproducible across runs | `test_split_assignment_is_deterministic`, `test_seed_changes_split_assignment` |
+| 2026-11-17 | P1 | Stats match actual split contents | `test_stats_match_split_contents` |
+| 2026-11-17 | P1 | Exact token counts equal recount with tokenizer | `test_exact_token_stats_with_tokenizer` |
+| 2026-11-17 | P1 | BPE lossless on unicode/emoji/ANSI/empty | `test_encode_decode_roundtrip` (9 parametrised cases) |
+| 2026-11-17 | P1 | Save/load preserves behaviour & rejects corruption | `test_save_and_reload_preserves_behaviour`, `test_load_rejects_corrupt_merges`, `test_load_rejects_special_token_collision` |
+| 2026-11-17 | P1 | Training deterministic, min_frequency early stop | `test_training_is_deterministic`, `test_min_frequency_stops_merging` |
+| 2026-11-17 | P1 | Real pipeline on Tiny Shakespeare | dataset `tinyshakespeare-971a2b0d5ff5`, 524,233 tokens, round-trip true |
 
 ---
 
@@ -338,6 +362,7 @@ Proof-of-completion entries (test names, outputs, file hashes).
 | 2026-11-16 | Spec analysis, environment audit, plan created | read-only audit | Phase 0 execution |
 | 2026-11-16 | Phase 0: git init, skeleton, venv (torch 2.15.0+cpu), check_env.py, 11 tests, ruff config, README + ENVIRONMENT docs, benchmarks recorded | `pytest` 11 passed, `ruff` clean, check_env measurements in §8 | Phase 1: dataset loaders + BPE tokenizer |
 | 2026-11-17 | GitHub wiring: rebased Phase 0 onto upstream `main` (LICENSE kept), authored docs commit, pushed | `9af411a` + `f687747` pushed to `origin/main`, remote HEAD confirmed via GitHub API (author `Adithyan-D`) | Phase 1 |
+| 2026-11-17 | Phase 1: loaders/preprocess/stats/split pipeline, from-scratch byte-level BPE, persistence, visualization, HF benchmark, 5 CLI scripts, 48 new tests, docs/DATASET_AND_TOKENIZER.md, real Tiny Shakespeare run | 59 tests pass, ruff clean, dataset `tinyshakespeare-971a2b0d5ff5` (524,233 tokens), BPE-1024 (768 merges, 2.85 s) | Phase 2: transformer from scratch |
 
 ---
 
