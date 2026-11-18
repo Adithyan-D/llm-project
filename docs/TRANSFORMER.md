@@ -167,10 +167,11 @@ Assumptions:
 
 - Activations are budgeted as `B·T·56·d` elements per layer plus
   `2·B·H·T²` for scores and softmax probabilities, plus `2·B·T·d` for
-  embeddings. The `56d` figure is deliberately conservative: roughly 18 distinct
-  `d`-sized block tensors are live for backward, and the factor of ~3 leaves room
-  for backward temporaries and allocator slack. Real peak RSS is always measured
-  separately; the estimate is a planning bound, not a promise.
+  embeddings. The `56d` figure is deliberately conservative: the live block
+  tensors needed for backward sum to roughly `18d` per token, and the remaining
+  factor of ~3 leaves room for backward temporaries and allocator slack. Real
+  peak RSS is always measured separately; the estimate is a planning bound, not
+  a promise.
 - Checkpointing stores block boundaries only and recomputes internals, so the
   per-layer activation term collapses to `2·B·T·d` + `(N−1)·B·T·d`. It is
   modelled, not implemented yet — there is no checkpointing code in Phase 2.
@@ -202,9 +203,10 @@ Interpretation, stated plainly:
   a different timing loop (single run, no warm-up repetition, no best-of). It is
   superseded by the table above; the two are not directly comparable.
 - The Phase 0 provisional benchmark (447 ms/step for a 5.29M model) used a
-  minimal forward/backward without the full block stack and generation plumbing,
-  so it is a floor, not a target. Phase 3 will use the real loop and report its
-  own numbers.
+  different shape (4 layers, `V=8192`) and a single timed run in a different
+  session, so it is not comparable to the table above. It was always labelled a
+  budget estimate, not a Phase 2 result. Phase 3 will report throughput for the
+  real training loop, on the real tokenizer vocabulary, with the same protocol.
 
 ## 8. What the tests prove
 
@@ -239,7 +241,8 @@ Interpretation, stated plainly:
 - No activation checkpointing code yet — only the memory model for it.
 - Context length is fixed at construction; extending it requires a new positional
   table and retraining.
-- `float32` only; mixed precision has no payoff on CPU without bf16 support.
+- `float32` only; BF16 autocast is not a dependable speedup on this laptop CPU
+  without hardware BF16 units, and mixed precision was not attempted.
 
 ## 10. Reproduce
 
