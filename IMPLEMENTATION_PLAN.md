@@ -392,6 +392,7 @@ Proof-of-completion entries (test names, outputs, file hashes).
 | 2026-11-17 | Phase 1: loaders/preprocess/stats/split pipeline, from-scratch byte-level BPE, persistence, visualization, HF benchmark, 5 CLI scripts, 48 new tests, docs/DATASET_AND_TOKENIZER.md, real Tiny Shakespeare run | 59 tests pass, ruff clean, dataset `tinyshakespeare-971a2b0d5ff5` (524,233 tokens), BPE-1024 (768 merges, 2.85 s) | Phase 2: transformer from scratch |
 | 2026-11-17 | Phase 1 pushed to origin/main | 3fba6c2 (feat) + cdb3cfc (docs) verified on remote | Phase 2 |
 | 2026-11-18 | Phase 2: from-scratch GPT (embeddings, causal SDPA, MHA, pre-LN blocks, MLP, tied LM head), sampling (greedy/temperature/top-k/top-p/repetition), parameter + memory estimator, mask cache, opt-in fused SDPA, configs + inspect/benchmark CLI, docs/TRANSFORMER.md, 56 new tests | 115 tests pass, ruff clean; 5,034,240-param model at 757-803 ms/step (batch 8 x 128, 8 threads); fused parity asserted | Phase 3: pretraining engine |
+| 2026-11-18 | Phase 2 pushed to origin/main | 39ea566 (feat) + 6e536bd (docs) verified equal to `git ls-remote origin refs/heads/main` | Phase 3 |
 
 ---
 
