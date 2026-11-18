@@ -5,9 +5,11 @@ from-scratch GPT transformer, pretraining, LoRA fine-tuning, evaluation, quantiz
 CPU inference, FastAPI backend and a React dashboard - built to be reproducible and
 measured, not simulated.
 
-**Status:** Phase 1 complete (dataset pipeline + from-scratch byte-level BPE tokenizer).
+**Status:** Phase 2 complete (dataset pipeline, from-scratch byte-level BPE tokenizer,
+from-scratch GPT transformer with causal attention and sampling).
 Implementation plan and progress tracker: [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
 Dataset/tokenizer design and measurements: [`docs/DATASET_AND_TOKENIZER.md`](docs/DATASET_AND_TOKENIZER.md).
+Transformer design, tests and CPU benchmarks: [`docs/TRANSFORMER.md`](docs/TRANSFORMER.md).
 
 ## Why this exists
 

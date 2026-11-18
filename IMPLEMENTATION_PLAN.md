@@ -3,8 +3,8 @@
 > Single source of truth for engineering progress. `README.md` will be user-facing;
 > this file is engineering-facing. Update it in the same session as the work is done.
 
-Last updated: 2026-11-17 — **Phase 1 complete and verified**. Current focus: Phase 2
-(transformer from scratch).
+Last updated: 2026-11-18 — **Phase 2 complete and verified**. Current focus: Phase 3
+(pretraining engine).
 
 ---
 
@@ -101,6 +101,12 @@ permission. `HF_HOME`, `TORCH_HOME`, MLflow store, model cache all live inside t
 | A15 | Hash-based split assignment instead of shuffle-and-slice | streaming, order-independent, reproducible per seed | buffer + shuffle (needs full corpus in RAM) |
 | A16 | Exact-match dedup only | O(1) per record, ~50 B/sample | MinHash/SimHash near-dup (deferred) |
 | A17 | Token counts only reported when a real tokenizer is supplied | avoids fake "approx tokens = chars/4" numbers | estimated token counts |
+| A18 | Pre-LN transformer blocks (normalise before sublayer) | stable training without LR warmup; post-LN is fragile at tiny batches | post-LN (original 2017 layout) |
+| A19 | Learned positional embeddings, not RoPE | at `T ≤ 128` the extra `T·d` params are cheap; RoPE pays off only beyond the trained window | RoPE / ALiBi (deferred until context grows) |
+| A20 | Handwritten causal SDPA is the default; fused `F.scaled_dot_product_attention` is opt-in | reference implementation is the learning objective; fused measured only 7-9% faster at 5M and slower at 2M on this CPU | making the fused kernel the default |
+| A21 | Causal mask memoised per `(T, device)` | 81.3 µs → 6.9 µs per mask build, six builds per step | rebuilding the mask every call |
+| A22 | No KV cache in Phase 2 generation | 128-token contexts make recompute acceptable; caching belongs with the inference engine | premature cache complexity |
+| A23 | Memory estimator is analytic and conservative, always paired with real measurements | avoids presenting a projection as a measurement | reporting estimates as measured RSS |
 
 ---
 
@@ -221,19 +227,22 @@ measured disk delta logged.
 in 2.85 s (768 merges + 256 bytes + 1 special), exact 524,233 tokens, lossless
 round-trip. 59 tests pass. Details: `docs/DATASET_AND_TOKENIZER.md`.
 
-### Phase 2 — Transformer From Scratch `[ ]`
-- [ ] Token embeddings + positional embeddings
-- [ ] Scaled dot-product attention with causal mask
-- [ ] Multi-head attention (Q/K/V projections, head split/merge)
-- [ ] MLP/feed-forward block, LayerNorm, residual connections
-- [ ] Transformer block stack + LM head (weight tying optional, documented)
-- [ ] Autoregressive generation (temperature, top-k, top-p, repetition penalty)
-- [ ] Parameter counter + activation/memory estimator
-- [ ] Configurable vocab size, d_model, heads, layers, context length, dropout
-- [ ] Tests: shapes, causal leakage, gradient flow, determinism under seed
+### Phase 2 — Transformer From Scratch `[x]`
+- [x] Token embeddings + positional embeddings
+- [x] Scaled dot-product attention with causal mask
+- [x] Multi-head attention (Q/K/V projections, head split/merge)
+- [x] MLP/feed-forward block, LayerNorm, residual connections
+- [x] Transformer block stack + LM head (weight tying optional, documented)
+- [x] Autoregressive generation (temperature, top-k, top-p, repetition penalty)
+- [x] Parameter counter + activation/memory estimator
+- [x] Configurable vocab size, d_model, heads, layers, context length, dropout
+- [x] Tests: shapes, causal leakage, gradient flow, determinism under seed
 
-**Acceptance:** 1–5M param model builds on CPU; fwd/bwd runs within budget; all unit
-tests pass; generation produces tokens (quality evaluated only after Phase 3).
+**Acceptance:** met. `tiny-5m` = 5,034,240 params (262,400 tied), 438.8 MiB
+analytic training estimate (143.8 MiB with checkpointing), batch 8 × 128 AdamW
+step 757-803 ms/step reference / 695-748 ms/step fused (best of 3 × 5 steps).
+115 tests pass; ruff clean. Generated token IDs come from a randomly initialised
+model and are explicitly not a quality claim. Details: `docs/TRANSFORMER.md`.
 
 ### Phase 3 — Pretraining Engine `[ ]`
 - [ ] Tokenized dataset + input/target pair construction, batching, packing
@@ -329,6 +338,14 @@ Only measured values — never estimated or invented. Include hardware + command
 | 2026-11-17 | Tokenizer round-trip | all splits + unicode/emoji/ANSI/empty | lossless, verified by tests | `pytest backend/tests/test_tokenizer.py` |
 | 2026-11-17 | Test suite | pytest 9.2.0 | 59 passed in 9.25 s | `.venv\Scripts\python.exe -m pytest` |
 | 2026-11-17 | Artifact sizes | dataset + tokenizer | 1.37 MB processed, 33.5 KB tokenizer | `Get-ChildItem ... \| Measure-Object Length -Sum` |
+| 2026-11-18 | GPT parameter count | `tiny-5m`: d=256, H=4, N=6, T=128, V=1025 | 5,034,240 params (262,400 tied) | `.venv\Scripts\python.exe scripts\inspect_model.py --config configs\models\gpt-5m.json` |
+| 2026-11-18 | GPT parameter count | `nano-2m`: d=192, H=4, N=4, T=128, V=1025 | 2,001,216 params (196,800 tied) | same, `configs\models\gpt-2m.json` |
+| 2026-11-18 | Analytic training memory | `tiny-5m`, batch 8 x 128, AdamW, FP32 | 438.8 MiB (act 362.0; weights 19.2, grads 19.2, opt 38.4); checkpointing model 143.8 MiB | same |
+| 2026-11-18 | Init-loss sanity | `tiny-5m`, V=1025 | ln(V)=6.932 printed; 3.954 after 15 AdamW steps on one fixed random batch | same |
+| 2026-11-18 | Train step throughput | `tiny-5m`, batch 8 x 128, 8 threads, best of 3 x 5 steps, two runs | reference 756.9-802.8 ms/step (1,276-1,353 tok/s); fused SDPA 694.6-747.7 ms/step (1,370-1,474 tok/s) | `.venv\Scripts\python.exe scripts\inspect_model.py --config configs\models\gpt-5m.json --iters 5 --repeats 3` |
+| 2026-11-18 | Train step throughput | `nano-2m`, same protocol | reference 322.7 ms/step (3,173 tok/s); fused 330.8 ms/step (3,096 tok/s) | same, `configs\models\gpt-2m.json` |
+| 2026-11-18 | Causal mask cost | 128 x 128 boolean mask, 20,000 calls, 8 threads | build 81.28 us/call; cached 6.94 us/call | inline timing loop, recorded in `docs/TRANSFORMER.md` §2 |
+| 2026-11-18 | Test suite | pytest 9.2.0 | 115 passed (13 attention, 16 model, 16 generation, 11 estimation, plus P0/P1) | `.venv\Scripts\python.exe -m pytest` |
 
 ---
 
@@ -352,6 +369,16 @@ Proof-of-completion entries (test names, outputs, file hashes).
 | 2026-11-17 | P1 | Save/load preserves behaviour & rejects corruption | `test_save_and_reload_preserves_behaviour`, `test_load_rejects_corrupt_merges`, `test_load_rejects_special_token_collision` |
 | 2026-11-17 | P1 | Training deterministic, min_frequency early stop | `test_training_is_deterministic`, `test_min_frequency_stops_merging` |
 | 2026-11-17 | P1 | Real pipeline on Tiny Shakespeare | dataset `tinyshakespeare-971a2b0d5ff5`, 524,233 tokens, round-trip true |
+| 2026-11-18 | P2 | Attention equals an explicit per-position reference | `test_attention_matches_naive_reference` |
+| 2026-11-18 | P2 | Causal masking blocks future-token leakage (attention + full model) | `test_causal_attention_ignores_future_tokens`, `test_logits_cannot_see_future_tokens` |
+| 2026-11-18 | P2 | Mask cache returns identical tensor without rebuilding | `test_cached_mask_is_reused_and_matches_fresh_mask` |
+| 2026-11-18 | P2 | Fused SDPA and handwritten path agree in value and gradient | `test_fused_attention_matches_reference_path`, `test_fused_attention_gradients_match_reference` |
+| 2026-11-18 | P2 | Gradients reach every trainable parameter, all finite | `test_gradients_flow_to_all_trainable_parameters`, `test_mha_shapes_and_gradients` |
+| 2026-11-18 | P2 | Seed determinism; dropout stochastic only in train mode | `test_initialisation_is_seed_deterministic`, `test_eval_mode_is_deterministic_with_dropout`, `test_training_mode_dropout_is_stochastic` |
+| 2026-11-18 | P2 | Analytic parameter formula matches built model (tied/untied, bias/no-bias) | `test_weight_tying_shares_storage`, `test_untied_head_adds_vocab_projection`, `test_no_bias_variant_counts_match` |
+| 2026-11-18 | P2 | Generation controls behave as specified and are reproducible | `test_temperature_zero_matches_greedy`, `test_top_k_one_is_greedy`, `test_sampling_is_seed_reproducible`, `test_repetition_penalty_matches_manual_math` |
+| 2026-11-18 | P2 | Memory estimate components sum and scale monotonically | `test_memory_estimate_includes_all_components`, `test_memory_scales_with_batch_and_sequence` |
+| 2026-11-18 | P2 | Lint/format clean at phase close | `ruff check .` -> All checks passed; `ruff format --check .` -> 47 files formatted |
 
 ---
 
@@ -364,6 +391,7 @@ Proof-of-completion entries (test names, outputs, file hashes).
 | 2026-11-17 | GitHub wiring: rebased Phase 0 onto upstream `main` (LICENSE kept), authored docs commit, pushed | `9af411a` + `f687747` pushed to `origin/main`, remote HEAD confirmed via GitHub API (author `Adithyan-D`) | Phase 1 |
 | 2026-11-17 | Phase 1: loaders/preprocess/stats/split pipeline, from-scratch byte-level BPE, persistence, visualization, HF benchmark, 5 CLI scripts, 48 new tests, docs/DATASET_AND_TOKENIZER.md, real Tiny Shakespeare run | 59 tests pass, ruff clean, dataset `tinyshakespeare-971a2b0d5ff5` (524,233 tokens), BPE-1024 (768 merges, 2.85 s) | Phase 2: transformer from scratch |
 | 2026-11-17 | Phase 1 pushed to origin/main | 3fba6c2 (feat) + cdb3cfc (docs) verified on remote | Phase 2 |
+| 2026-11-18 | Phase 2: from-scratch GPT (embeddings, causal SDPA, MHA, pre-LN blocks, MLP, tied LM head), sampling (greedy/temperature/top-k/top-p/repetition), parameter + memory estimator, mask cache, opt-in fused SDPA, configs + inspect/benchmark CLI, docs/TRANSFORMER.md, 56 new tests | 115 tests pass, ruff clean; 5,034,240-param model at 757-803 ms/step (batch 8 x 128, 8 threads); fused parity asserted | Phase 3: pretraining engine |
 
 ---
 
