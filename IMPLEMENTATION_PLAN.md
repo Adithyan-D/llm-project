@@ -107,6 +107,11 @@ permission. `HF_HOME`, `TORCH_HOME`, MLflow store, model cache all live inside t
 | A21 | Causal mask memoised per `(T, device)` | 81.3 µs → 6.9 µs per mask build, six builds per step | rebuilding the mask every call |
 | A22 | No KV cache in Phase 2 generation | 128-token contexts make recompute acceptable; caching belongs with the inference engine | premature cache complexity |
 | A23 | Memory estimator is analytic and conservative, always paired with real measurements | avoids presenting a projection as a measurement | reporting estimates as measured RSS |
+| A24 | Pack documents into one token stream with `<|endoftext|>` separators and non-overlapping windows | zero padding tokens trained on; every token seen once per epoch; EOS makes boundaries visible | padding per document (wasted compute), sliding windows with overlap (duplicates) |
+| A25 | Epoch shuffle derived from `(seed + epoch)`; checkpoint stores only `BatchCursor(epoch, batch_index)` | resume is exact without serialising a 3.4k-entry permutation; no permutation drift across NumPy versions in the checkpoint | storing the permutation (larger, version-coupled checkpoints) |
+| A26 | Resuming preserves the checkpoint's LR horizon even if `max_steps` grows | prevents an artificial metric jump from remapping the cosine curve; extending a run means "more steps at the floor", not "restart the schedule" | recomputing the schedule for the new horizon |
+| A27 | Analytic RAM pre-flight (70% of available) plus OOM-marker translation | CPU allocator errors are generic and can leave the process unusable; a clear refusal is cheaper than a half-written run | hoping the allocator errors cleanly |
+| A28 | Atomic checkpoints (temp file + `os.replace`) and a `latest.json` pointer | a crash mid-write cannot corrupt the last good checkpoint; resume path is one argument | in-place `torch.save` (truncated files on crash) |
 
 ---
 
@@ -244,17 +249,25 @@ step 757-803 ms/step reference / 695-748 ms/step fused (best of 3 × 5 steps).
 115 tests pass; ruff clean. Generated token IDs come from a randomly initialised
 model and are explicitly not a quality claim. Details: `docs/TRANSFORMER.md`.
 
-### Phase 3 — Pretraining Engine `[ ]`
-- [ ] Tokenized dataset + input/target pair construction, batching, packing
-- [ ] Training loop: CE loss, backprop, AdamW, LR schedule, grad clip, grad accumulation
-- [ ] Validation loop
-- [ ] Checkpoint save/resume (model, optimizer, scheduler, step, RNG state)
-- [ ] OOM safeguards (batch/seq auto-guard, clear error messages)
-- [ ] Training logs: loss, val loss, LR, epoch, duration, tokens processed
-- [ ] Actually train a small GPT and record real curves
+### Phase 3 — Pretraining Engine `[x]`
+- [x] Tokenized dataset + input/target pair construction, batching, packing
+- [x] Training loop: CE loss, backprop, AdamW, LR schedule, grad clip, grad accumulation
+- [x] Validation loop
+- [x] Checkpoint save/resume (model, optimizer, scheduler, step, RNG state)
+- [x] OOM safeguards (batch/seq auto-guard, clear error messages)
+- [x] Training logs: loss, val loss, LR, epoch, duration, tokens processed
+- [x] Actually train a small GPT and record real curves
 
-**Acceptance:** loss decreases on real data; checkpoint resumes without metric jump;
-saved model generates coherent-looking text for its tiny scale; curves archived.
+**Acceptance:** met. EOS-separated packed streams (train 440,076 tokens / 20,607 docs,
+val 55,491 / 2,580; cache built in 2.1 s), non-overlapping windows, deterministic
+`(seed + epoch)` shuffle with a 2-integer cursor. Real `tiny-5m` run: 400 steps x 1,024
+tokens = 409,600 tokens in 326.7 s (1,253.7 tok/s, 93.2% of the 429-step epoch); val
+loss 3.9425 -> 3.5209 across 8 evaluations (init reference ln(1025)=6.932); checkpoints
+60,517,397 B; 144 tests pass; ruff clean. Resume proof: step 400 -> 405 kept the
+checkpoint's LR horizon (6e-5), val 3.520929 -> 3.520660 with no jump, and a repeat
+resume reproduced 3.520660 exactly. Samples are word salad, as expected at 5M params
+and 0.93 epoch; this is stated plainly rather than presented as coherent text.
+Details: `docs/TRAINING.md`.
 
 ### Phase 4 — Pretrained Models & LoRA `[ ]`
 - [ ] HF cache config inside `model_registry/hf_cache`
@@ -346,6 +359,15 @@ Only measured values — never estimated or invented. Include hardware + command
 | 2026-11-18 | Train step throughput | `nano-2m`, same protocol | reference 322.7 ms/step (3,173 tok/s); fused 330.8 ms/step (3,096 tok/s) | same, `configs\models\gpt-2m.json` |
 | 2026-11-18 | Causal mask cost | 128 x 128 boolean mask, 20,000 calls, 8 threads | build 81.28 us/call; cached 6.94 us/call | inline timing loop, recorded in `docs/TRANSFORMER.md` §2 |
 | 2026-11-18 | Test suite | pytest 9.2.0 | 115 passed (13 attention, 16 model, 16 generation, 11 estimation, plus P0/P1) | `.venv\Scripts\python.exe -m pytest` |
+| 2026-11-18 | Token stream build | Tiny Shakespeare `971a2b0d5ff5` + BPE-1024, EOS 1024 | train 440,076 tokens / 20,607 docs; val 55,491 / 2,580; 2.1 s cold build | `.venv\Scripts\python.exe scripts\prepare_training_data.py ...` |
+| 2026-11-18 | Packing geometry | `tiny-5m`, T=128, batch 8 | 3,437 train windows -> 429 steps/epoch, 439,296 tokens/epoch (5 windows dropped) | token stream manifest + `PackedSampler` |
+| 2026-11-18 | Real pretraining throughput | 400 steps x 8 x 128, AdamW, 8 threads, GradClip 1.0 | 409,600 tokens in 326.7 s = 1,253.7 tok/s (~0.82 s/step) | `.venv\Scripts\python.exe scripts\train_gpt.py --config configs\training\pretrain-gpt5m-shakespeare.json` |
+| 2026-11-18 | Real val-loss curve | same run, 10 fixed val batches every 50 steps | 3.9425 @50, 3.7263 @100, 3.6617 @150, 3.6178 @200, 3.5827 @250, 3.5540 @300, 3.5380 @350, 3.5209 @400 | same (report.json) |
+| 2026-11-18 | Real train-loss anchors | same run | ln(1025)=6.932 init reference; first logged window (steps 1-20) 5.377; final step 3.543 | same |
+| 2026-11-18 | Checkpoint size | 5,034,240 params + AdamW m/v + RNG + history | 60,517,397 B (step 200); 60,518,549 B (step 405) | `Get-ChildItem checkpoints\shakespeare-gpt5m` |
+| 2026-11-18 | Resume continuity | step 400 -> 405, schedule horizon kept at 400 | 5,120 tokens in 6.7 s (769 tok/s); val 3.520929 -> 3.520660; repeat run reproduced 3.520660 exactly | `train_gpt.py --resume ...\step-000400.pt --max-steps 405` |
+| 2026-11-18 | Trained-model generation | temperature 0.8, top-k 40, top-p 0.95, no KV cache | 22 tokens @ 30.3 tok/s; 34 tokens @ 31.7 tok/s | same run (report.json `samples`) |
+| 2026-11-18 | Test suite | pytest 9.2.0 | 144 passed (29 training + 29 tokenizer + rest of P0/P1/P2) | `.venv\Scripts\python.exe -m pytest` |
 
 ---
 
@@ -379,6 +401,20 @@ Proof-of-completion entries (test names, outputs, file hashes).
 | 2026-11-18 | P2 | Generation controls behave as specified and are reproducible | `test_temperature_zero_matches_greedy`, `test_top_k_one_is_greedy`, `test_sampling_is_seed_reproducible`, `test_repetition_penalty_matches_manual_math` |
 | 2026-11-18 | P2 | Memory estimate components sum and scale monotonically | `test_memory_estimate_includes_all_components`, `test_memory_scales_with_batch_and_sequence` |
 | 2026-11-18 | P2 | Lint/format clean at phase close | `ruff check .` -> All checks passed; `ruff format --check .` -> all files formatted |
+| 2026-11-18 | P3 | Token cache equals a fresh tokenizer encode with EOS after each doc | `test_token_stream_appends_eos_and_matches_tokenizer` |
+| 2026-11-18 | P3 | Cache is reused without re-encoding; a changed tokenizer gets its own cache | `test_token_stream_cache_is_reused_without_reencoding`, `test_changing_the_tokenizer_builds_a_separate_cache` |
+| 2026-11-18 | P3 | Windows are non-overlapping and targets are inputs shifted by one | `test_sampler_shapes_and_shifted_targets` |
+| 2026-11-18 | P3 | Epoch order is deterministic per seed, differs across epochs, covers every window once | `test_sampler_epoch_is_deterministic_and_shuffled`, `test_sampler_covers_each_window_once_per_epoch` |
+| 2026-11-18 | P3 | Gradient accumulation equals a single full-batch update | `test_gradient_accumulation_matches_full_batch` |
+| 2026-11-18 | P3 | Resume reproduces an uninterrupted run's parameters and tokens exactly | `test_resume_matches_uninterrupted_run` |
+| 2026-11-18 | P3 | Extending a resumed run keeps the checkpoint's LR horizon | `test_resume_keeps_checkpoint_schedule_horizon` |
+| 2026-11-18 | P3 | Checkpoint restores model, AdamW state, cursor and all three RNGs | `test_checkpoint_roundtrip_restores_model_optimizer_and_rng`, `test_random_module_state_is_restored_by_checkpoint` |
+| 2026-11-18 | P3 | `latest.json` resolves from the CWD and from a moved run directory | `test_latest_pointer_resolves_paths_relative_to_the_working_directory`, `test_latest_pointer_falls_back_to_the_run_directory` |
+| 2026-11-18 | P3 | Mismatched architecture/format is rejected instead of loaded | `test_checkpoint_rejects_mismatched_model_config`, `test_checkpoint_rejects_unknown_format` |
+| 2026-11-18 | P3 | RAM pre-flight refuses over-budget configs; allocator OOM is translated | `test_memory_budget_guard`, `test_oom_during_step_is_translated`, `test_oom_detection` |
+| 2026-11-18 | P3 | Real loss falls on real tokens and the curve is archived | val 3.9425 -> 3.5209 over 400 steps; `docs/TRAINING.md` §9 |
+| 2026-11-18 | P3 | Resume causes no metric jump and is repeatable | val 3.520929 -> 3.520660 at step 405 (two identical resumes); `docs/TRAINING.md` §9 |
+| 2026-11-18 | P3 | Lint/format clean at phase close | `ruff check .` -> All checks passed; `ruff format --check .` -> 58 files formatted |
 
 ---
 
@@ -393,6 +429,7 @@ Proof-of-completion entries (test names, outputs, file hashes).
 | 2026-11-17 | Phase 1 pushed to origin/main | 3fba6c2 (feat) + cdb3cfc (docs) verified on remote | Phase 2 |
 | 2026-11-18 | Phase 2: from-scratch GPT (embeddings, causal SDPA, MHA, pre-LN blocks, MLP, tied LM head), sampling (greedy/temperature/top-k/top-p/repetition), parameter + memory estimator, mask cache, opt-in fused SDPA, configs + inspect/benchmark CLI, docs/TRANSFORMER.md, 56 new tests | 115 tests pass, ruff clean; 5,034,240-param model at 757-803 ms/step (batch 8 x 128, 8 threads); fused parity asserted | Phase 3: pretraining engine |
 | 2026-11-18 | Phase 2 pushed to origin/main | 39ea566 (feat) + 6e536bd (docs) verified equal to `git ls-remote origin refs/heads/main` | Phase 3 |
+| 2026-11-18 | Phase 3: token-stream cache, packed non-overlapping windows, deterministic epoch sampler, warmup+cosine schedule, AdamW + clipping + accumulation, fixed val loop, atomic checkpoints with cursor/RNG, RAM pre-flight + OOM translation, train/prepare CLIs, config, 29 new tests, docs/TRAINING.md | 144 tests pass, ruff clean; 400 steps on real Tiny Shakespeare tokens: 409,600 tokens in 326.7 s (1,253.7 tok/s), val 3.9425 -> 3.5209, resume 400 -> 405 with no jump | Phase 4: pretrained models + LoRA |
 
 ---
 
