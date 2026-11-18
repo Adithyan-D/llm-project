@@ -1,0 +1,17 @@
+{
+  "name": "tiny-5m",
+  "description": "CPU-sized decoder-only GPT (Phase 2/3 preset)",
+  "tokenizer": "model_registry/tokenizers/tinyshakespeare-bpe-1024",
+  "config": {
+    "vocab_size": 1025,
+    "context_length": 128,
+    "d_model": 256,
+    "n_heads": 4,
+    "n_layers": 6,
+    "dropout": 0.0,
+    "bias": true,
+    "tie_weights": true,
+    "ln_eps": 1e-05,
+    "init_std": 0.02
+  }
+}
