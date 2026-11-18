@@ -430,6 +430,7 @@ Proof-of-completion entries (test names, outputs, file hashes).
 | 2026-11-18 | Phase 2: from-scratch GPT (embeddings, causal SDPA, MHA, pre-LN blocks, MLP, tied LM head), sampling (greedy/temperature/top-k/top-p/repetition), parameter + memory estimator, mask cache, opt-in fused SDPA, configs + inspect/benchmark CLI, docs/TRANSFORMER.md, 56 new tests | 115 tests pass, ruff clean; 5,034,240-param model at 757-803 ms/step (batch 8 x 128, 8 threads); fused parity asserted | Phase 3: pretraining engine |
 | 2026-11-18 | Phase 2 pushed to origin/main | 39ea566 (feat) + 6e536bd (docs) verified equal to `git ls-remote origin refs/heads/main` | Phase 3 |
 | 2026-11-18 | Phase 3: token-stream cache, packed non-overlapping windows, deterministic epoch sampler, warmup+cosine schedule, AdamW + clipping + accumulation, fixed val loop, atomic checkpoints with cursor/RNG, RAM pre-flight + OOM translation, train/prepare CLIs, config, 29 new tests, docs/TRAINING.md | 144 tests pass, ruff clean; 400 steps on real Tiny Shakespeare tokens: 409,600 tokens in 326.7 s (1,253.7 tok/s), val 3.9425 -> 3.5209, resume 400 -> 405 with no jump | Phase 4: pretrained models + LoRA |
+| 2026-11-18 | Phase 3 pushed to origin/main | `34c2390` (feat) + `2ecb603` (docs) verified equal to `git ls-remote origin refs/heads/main` | Phase 4 |
 
 ---
 
