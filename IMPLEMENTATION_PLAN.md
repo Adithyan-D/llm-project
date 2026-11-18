@@ -378,7 +378,7 @@ Proof-of-completion entries (test names, outputs, file hashes).
 | 2026-11-18 | P2 | Analytic parameter formula matches built model (tied/untied, bias/no-bias) | `test_weight_tying_shares_storage`, `test_untied_head_adds_vocab_projection`, `test_no_bias_variant_counts_match` |
 | 2026-11-18 | P2 | Generation controls behave as specified and are reproducible | `test_temperature_zero_matches_greedy`, `test_top_k_one_is_greedy`, `test_sampling_is_seed_reproducible`, `test_repetition_penalty_matches_manual_math` |
 | 2026-11-18 | P2 | Memory estimate components sum and scale monotonically | `test_memory_estimate_includes_all_components`, `test_memory_scales_with_batch_and_sequence` |
-| 2026-11-18 | P2 | Lint/format clean at phase close | `ruff check .` -> All checks passed; `ruff format --check .` -> 47 files formatted |
+| 2026-11-18 | P2 | Lint/format clean at phase close | `ruff check .` -> All checks passed; `ruff format --check .` -> all files formatted |
 
 ---
 
